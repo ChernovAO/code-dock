@@ -4,7 +4,7 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 
 ## Состояние проекта
 
-Проект на стадии проектирования. Есть документация в `docs/` и заготовки приложений в `apps/`. Рабочего кода нет: в `apps/core` только заглушка, `apps/frontend` содержит один README. Не выдумывай команды сборки, тестов и линтеров. Когда появятся, добавь их в этот файл.
+Проект на стадии проектирования. Есть документация в `docs/` и заготовки приложений в `apps/`. Рабочего кода почти нет: `apps/core` отдаёт `GET /api/health`, `apps/frontend` показывает одну страницу-заглушку со статусом бэкенда. Не выдумывай команды сборки, тестов и линтеров. Когда появятся, добавь их в этот файл.
 
 Перед работой прочитай документы:
 - `docs/overview.md`: цели, принципы, что не входит в проект.
@@ -57,8 +57,9 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 
 ## Структура каталогов
 
-- `apps/core` — бэкенд на FastAPI. Python-пакет `core` (`src/core/`), собирается через `uv_build`.
-- `apps/frontend` — фронтенд на React + TypeScript. Пока только README. Не входит в uv workspace.
+- `apps/core` — бэкенд на FastAPI. Python-пакет `core` (`src/core/`), тесты в `tests/`, собирается через `uv_build`.
+- `apps/frontend` — фронтенд на React + TypeScript (Vite, npm). Не входит в uv workspace.
+- `compose.yaml` — `docker compose up` поднимает `core` (внутренняя сеть) и `frontend` (nginx, порт 8080, проксирует `/api` в `core`). Dockerfile лежат в `apps/core` и `apps/frontend`.
 - `docs/` — документация.
 - `pyproject.toml` в корне — виртуальный uv workspace (`package = false`) с участником `apps/core`. `core` указан в зависимостях корня, поэтому обычный `uv sync` ставит его.
 - `uv.lock` коммитится. `.python-version` — Python 3.14.
@@ -66,12 +67,29 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 ## Команды
 
 Бэкенд (из корня репозитория):
-- `uv sync` — создать `.venv` и поставить зависимости. `uv sync --all-packages` ставит всех участников workspace.
+- `uv sync` — создать `.venv` и поставить зависимости. Dev-зависимости `core` при этом не ставятся. `uv sync --all-packages` ставит всех участников workspace.
 - `uv build --package core` — собрать пакет `core`.
+- `.venv/bin/uvicorn core.main:app --reload` — запустить API на `localhost:8000`.
+
+Бэкенд: проверки (из `apps/core`):
+- `uv run ruff check .` — линтер.
+- `uv run ruff format .` — форматтер.
+- `uv run mypy` — проверка типов (strict, конфиг в `pyproject.toml`).
+- `uv run pytest` — тесты с расчётом покрытия (`--cov=core` включён в `addopts`, ветвления учитываются, отчёт с непокрытыми строками). Порог 70% (`fail_under`): ниже — прогон падает, даже если тесты прошли.
+- `uv run pytest tests/test_health.py::test_health` — один тест.
+
+`uv run` из `apps/core` сам ставит dev-зависимости, отдельный `uv sync` не нужен.
+
+Фронтенд (из `apps/frontend`):
+- `npm install` — поставить зависимости.
+- `npm run dev` — dev-сервер Vite, запросы `/api` проксируются на `localhost:8000`.
+- `npm run build` — проверка типов и сборка.
+
+Весь стек: `docker compose up --build`, приложение на `http://localhost:8080`. Из среды opencode docker недоступен: у процесса нет группы `docker`.
 
 В среде opencode snap-версия `uv` может не запускаться из-за `NoNewPrivs`. Запускай бинарник напрямую: `/snap/astral-uv/current/bin/uv`.
 
-Тестов, линтеров, форматтеров и команд фронтенда пока нет.
+Для фронтенда тестов, линтеров и форматтеров пока нет.
 
 ## Переменные окружения
 

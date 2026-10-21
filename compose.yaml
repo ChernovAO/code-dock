@@ -1,0 +1,15 @@
+services:
+  core:
+    build:
+      context: .
+      dockerfile: apps/core/Dockerfile
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: apps/frontend
+    restart: unless-stopped
+    depends_on:
+      - core
+    ports:
+      - "8080:80"

@@ -15,6 +15,26 @@
 
 ## Структура
 `src/core/` — код приложения.
+`tests/` — тесты на pytest.
 
 ## Запуск
-Команды появятся вместе с кодом. Приложение запускается через `docker compose up` из корня репозитория.
+Из корня репозитория:
+```
+uv sync
+.venv/bin/uvicorn core.main:app --reload
+```
+API на `http://localhost:8000`, проверка: `GET /api/health`. Весь стек запускается через `docker compose up --build` из корня репозитория, приложение на `http://localhost:8080`.
+
+## Проверки
+Из `apps/core`:
+```
+uv run ruff check .   # линтер
+uv run ruff format .  # форматтер
+uv run mypy           # типы (strict, конфиг в pyproject.toml)
+uv run pytest         # тесты + покрытие
+```
+Один тест: `uv run pytest tests/test_health.py::test_health`.
+
+Покрытие включено всегда: `--cov=core` в `addopts`, учитываются ветвления (`branch`), отчёт печатается после тестов с непокрытыми строками. Порог — 70% (`fail_under` в `[tool.coverage.report]`): если общее покрытие ниже, прогон падает, даже когда все тесты прошли. Конфиг — в `[tool.coverage.*]` того же `pyproject.toml`.
+
+Обычный `uv sync` из корня dev-зависимости не ставит — `uv run` из `apps/core` доставит их сам.
