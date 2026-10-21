@@ -1,0 +1,21 @@
+[project]
+name = "code-dock"
+version = "0.1.0"
+description = "Self-hosted мобильный веб-интерфейс для ИИ-агента: обёртка над opencode и git"
+readme = "README.md"
+authors = [
+    { name = "ChernovAO", email = "chernov.aleksandre@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = ["core"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+core = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "apps/core"
+]

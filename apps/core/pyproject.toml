@@ -1,0 +1,14 @@
+[project]
+name = "core"
+version = "0.1.0"
+description = "Бэкенд Code Dock на FastAPI: прокси к opencode, git и файловые операции"
+readme = "README.md"
+authors = [
+    { name = "ChernovAO", email = "chernov.aleksandre@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
