@@ -262,3 +262,6 @@ test-results/
 # Editor / OS
 .DS_Store
 Thumbs.db
+
+# Code Dock: данные на хосте (клоны репозиториев)
+/data/

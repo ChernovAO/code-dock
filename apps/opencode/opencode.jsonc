@@ -1,0 +1,31 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "update": "disable",
+  "shell": "/bin/bash",
+  // Побеждает последнее подходящее правило. Эти правила идут после встроенных правил агентов и перекрывают их.
+  "permissions": [
+    { "action": "*", "resource": "*", "effect": "ask" },
+    { "action": "read", "resource": "*", "effect": "allow" },
+    { "action": "read", "resource": "*.env", "effect": "ask" },
+    { "action": "read", "resource": "*.env.*", "effect": "ask" },
+    { "action": "read", "resource": "*.env.example", "effect": "allow" },
+    { "action": "glob", "resource": "*", "effect": "allow" },
+    { "action": "grep", "resource": "*", "effect": "allow" },
+    { "action": "edit", "resource": "*", "effect": "allow" },
+    // Code Mode ходит в сеть через fetch без вопросов и умеет переносить сессию в другой репозиторий.
+    { "action": "execute", "resource": "*", "effect": "deny" }
+  ],
+  "agents": {
+    // Глобальное правило edit allow отменило бы запрет правок у встроенного агента plan.
+    "plan": { "permissions": [{ "action": "edit", "resource": "*", "effect": "deny" }] }
+  },
+  "policies": [
+    // Граница агента — репозиторий. Пути внутри репозитория не считаются внешними.
+    { "action": "tool.use", "resource": "external_directory:*", "effect": "deny" },
+    // Путь в политике относителен проекта: для проекта в корне репозитория это ".git/…", для вложенного — "../.git/…".
+    { "action": "tool.use", "resource": "edit:.git/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*/.git/*", "effect": "deny" },
+    { "action": "integration.use", "resource": "plugin:*", "effect": "deny" },
+    { "action": "integration.use", "resource": "mcp:*", "effect": "deny" }
+  ]
+}

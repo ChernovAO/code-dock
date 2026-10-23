@@ -6,11 +6,19 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /app
 
+# Зависимости отдельным слоем: правка кода и смена UID их не переустанавливают.
 COPY pyproject.toml uv.lock .python-version ./
 COPY apps/core/pyproject.toml apps/core/README.md apps/core/
+RUN uv sync --frozen --no-dev --no-install-workspace
+
 COPY apps/core/src apps/core/src
-RUN uv sync --frozen --no-dev \
-    && useradd --system --no-create-home app
+RUN uv sync --frozen --no-dev
+
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+
+RUN groupadd --gid ${HOST_GID} app \
+    && useradd --uid ${HOST_UID} --gid ${HOST_GID} --no-create-home app
 
 USER app
 

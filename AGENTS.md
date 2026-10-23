@@ -4,13 +4,14 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 
 ## Состояние проекта
 
-Проект на стадии проектирования. Есть документация в `docs/` и заготовки приложений в `apps/`. Рабочего кода почти нет: `apps/core` отдаёт `GET /api/health`, `apps/frontend` показывает одну страницу-заглушку со статусом бэкенда. Не выдумывай команды сборки, тестов и линтеров. Когда появятся, добавь их в этот файл.
+Проект на стадии проектирования. Есть документация в `docs/` и заготовки приложений в `apps/`. Рабочего кода почти нет: `apps/core` отдаёт `GET /api/health`, `apps/frontend` показывает одну страницу-заглушку со статусом бэкенда. Для прототипа готовы образ opencode с конфигом прав (`apps/opencode`) и compose на три сервиса (фаза A плана прототипа). Код прототипа в `core` (фаза B) впереди. Не выдумывай команды сборки, тестов и линтеров. Когда появятся, добавь их в этот файл.
 
 Перед работой прочитай документы:
 - `docs/overview.md`: цели, принципы, что не входит в проект.
 - `docs/functional-requirements.md`: что должен уметь продукт.
-- `docs/opencode-integration.md`: что есть в API opencode V2 и что придётся делать самим.
+- `docs/opencode-integration.md`: что есть в API opencode V2, что проверено вживую и что придётся делать самим.
 - `docs/discussion-plan.md`: нерешённые вопросы, которые нужно закрыть до реализации.
+- `docs/prototype-plan.md`: рабочий план прототипа, результаты фазы A и оставшиеся проверки.
 
 ## Стек
 
@@ -22,7 +23,7 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 ## Архитектурные правила
 
 - **Свой ИИ-агент не пишем.** Вся логика ИИ остаётся в opencode. Модели и провайдеры настраиваются средствами opencode.
-- **Фронтенд общается только с FastAPI.** Предварительное решение: FastAPI проксирует запросы и SSE-события в opencode. Opencode остаётся во внутренней сети docker и наружу не торчит.
+- **Фронтенд общается только с FastAPI.** FastAPI проксирует запросы и SSE-события в opencode. Opencode работает отдельным контейнером во внутренней сети docker, наружу не торчит и закрыт паролем.
 - **Git и операции с файлами живут в FastAPI.** В API opencode нет `commit`, `push`, `pull`, `clone`, истории коммитов, удаления и переименования файлов.
 - **Синхронизация только ручная.** Автокоммитов и автопуша нет.
 - **Mobile-first.** Любой UI сначала проектируется под телефон.
@@ -30,16 +31,19 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 
 ## Осторожно с API opencode
 
-- Спецификация экспериментальная (`Experimental HttpApi surface`, версия `0.0.1`). Версию opencode нужно фиксировать в образе.
-- `POST /api/experimental/fs/write` **не ограничен `location`** и принимает абсолютные пути. Все пути проверяй в FastAPI: нормализуй, запрещай выход за пределы проекта и учитывай symlink.
-- События `/api/event` приходят только вживую, без replay и автопереподключения. После обрыва нужно подписаться заново и полностью перечитать историю (`session.message.list`). Буфер событий в FastAPI не делаем.
-- Сессии opencode лежат в его БД вне репозитория, поэтому для них нужен отдельный docker-том.
+- Спецификация экспериментальная (`Experimental HttpApi surface`, версия `0.0.1`). Версия opencode зафиксирована в образе: 2.1.2 (`apps/opencode/Dockerfile`). При её смене заново проверь права и политики (`docs/opencode-integration.md`, «Права и граница агента»).
+- Файловые методы opencode (`fs/*`) не используем и не проксируем: `fs/write` и `fs/list` не ограничены `location`. FastAPI работает с файлами напрямую на общем томе `/repos`. Все пути проверяй сам: нормализуй, запрещай выход за пределы репозитория и учитывай symlink.
+- События `/api/event` приходят только вживую, без replay и автопереподключения. Журнал сессии (`session.log`) в 2.1.2 события не хранит, докачки по `seq` нет (проверено). После обрыва подпишись заново, затем полностью перечитай историю (`session.message.list`) и слей её с событиями идемпотентно. Буфер событий в FastAPI не делаем.
+- Сессии opencode лежат в его БД вне репозитория, в томе `opencode-data`. `docker compose down -v` удалит чаты и ключи провайдеров.
 - Источник истины по API: https://opencode.ai/v2/openapi.json. Если документ расходится со спецификацией, верь спецификации и обнови документ.
 
 ## Безопасность
 
 - Агент выполняет команды и правит файлы. Права ограничивай через `permissions` в конфиге opencode.
-- GitHub Personal Access Token не логируй, не коммить и не отдавай на фронтенд. Он задаётся в настройках или переменной окружения.
+- Граница агента — репозиторий. Её держит системный конфиг opencode (`apps/opencode/opencode.jsonc`): политики `external_directory:*`, `edit:.git/*`, `plugin:*`, `mcp:*` и правило `execute` deny. Не ослабляй их без обсуждения. Известные дыры (symlink, `shell`, `grep` по `.env`) описаны в `docs/opencode-integration.md`.
+- Конфиг репозитория opencode не загружаем (`OPENCODE_DISABLE_PROJECT_CONFIG=1` в образе): `formatter`, плагины, MCP и правила агентов из репозитория исполняют код и снимают вопросы. Не убирай флаг без обсуждения. `AGENTS.md` проекта при этом не подхватывается.
+- OpenCode Console (`opencode auth login opencode`) и MDM, по документации opencode, могут отменять системные политики. После подключения и изменений в Console прогоняй `apps/opencode/verify/live.py`. Подробности: `docs/opencode-integration.md`, «Ограничения и риски».
+- GitHub Personal Access Token не логируй, не коммить и не отдавай на фронтенд. Он задаётся в настройках или переменной окружения. Живёт только в `core`: не пиши его в `remote`-URL и `.git/config`, иначе он окажется на общем томе, где его видит агент. Git передавай токен на время команды (`GIT_ASKPASS` или `http.extraheader`) и вызывай с `-c core.hooksPath=/dev/null`.
 - `.env` уже в `.gitignore`. Секреты в репозиторий не попадают.
 - Способ защиты доступа на публичном VPS ещё не выбран. Не добавляй авторизацию «по умолчанию» без обсуждения.
 
@@ -58,8 +62,11 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 ## Структура каталогов
 
 - `apps/core` — бэкенд на FastAPI. Python-пакет `core` (`src/core/`), тесты в `tests/`, собирается через `uv_build`.
+- `apps/opencode` — образ opencode: `Dockerfile` (версия 2.1.2, пользователь `app` с UID/GID хоста) и системный конфиг `opencode.jsonc` с правами и политиками. В `verify/` — стенд проверки образа и прав на нативном opencode (без сторонних пакетов). Не входит в uv workspace.
 - `apps/frontend` — фронтенд на React + TypeScript (Vite, npm). Не входит в uv workspace.
-- `compose.yaml` — `docker compose up` поднимает `core` (внутренняя сеть) и `frontend` (nginx, порт 8080, проксирует `/api` в `core`). Dockerfile лежат в `apps/core` и `apps/frontend`.
+- `compose.yaml` — `docker compose up` поднимает `opencode` и `core` (внутренняя сеть) и `frontend` (nginx, порт 8080, проксирует `/api` в `core`). Dockerfile лежат в `apps/core`, `apps/opencode` и `apps/frontend`. Папка репозиториев и том `opencode-data` монтируются в `/repos` и `/opencode`.
+- `.env.example` — шаблон `.env` с переменными окружения (см. ниже).
+- `data/` — папка репозиториев из шаблона (`data/repos`); реальный путь задаёт `HOST_REPOS_DIR` на старте. Лежит в `.gitignore` и `.dockerignore`: контекст сборки `core` — корень репозитория, клоны в него попадать не должны.
 - `docs/` — документация.
 - `pyproject.toml` в корне — виртуальный uv workspace (`package = false`) с участником `apps/core`. `core` указан в зависимостях корня, поэтому обычный `uv sync` ставит его.
 - `uv.lock` коммитится. `.python-version` — Python 3.14.
@@ -85,7 +92,25 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 - `npm run dev` — dev-сервер Vite, запросы `/api` проксируются на `localhost:8000`.
 - `npm run build` — проверка типов и сборка.
 
-Весь стек: `docker compose up --build`, приложение на `http://localhost:8080`. Из среды opencode docker недоступен: у процесса нет группы `docker`.
+Весь стек, первый запуск (из корня репозитория):
+```
+cp .env.example .env      # задайте OPENCODE_SERVER_PASSWORD и HOST_REPOS_DIR; при необходимости HOST_UID и HOST_GID
+mkdir -p data/repos       # создайте папку из HOST_REPOS_DIR; здесь пример
+docker compose up --build
+```
+Приложение на `http://localhost:8080`. Без пароля и `HOST_REPOS_DIR` compose не стартует. Репозитории клонируйте в папку из `HOST_REPOS_DIR`. Провайдер модели подключается командой `docker compose exec opencode opencode auth login anthropic --method key --server http://127.0.0.1:4096`, где `anthropic` — ID провайдера.
+
+Из среды opencode docker недоступен: у процесса нет группы `docker`. Сборку и `compose up` проверяет пользователь. `docker compose config` работает и без демона: проверяет файл и переменные.
+
+Стенд проверки образа opencode (из корня репозитория, подробности в `apps/opencode/verify/README.md`):
+- `python3 apps/opencode/verify/run.py` — все профили. Нужны Linux, `bwrap`, `git` и нативный opencode той же версии, что в `Dockerfile` (`--binary` или `OPENCODE_BIN`). Код 0 — требования выполнены, 1 — нарушения, 2 — окружение не готово.
+- `python3 apps/opencode/verify/run.py --profile static` — только `Dockerfile` и `compose.yaml`.
+- `python3 apps/opencode/verify/run.py --profile main --only boundary` — одна группа проверок.
+- `python3 apps/opencode/verify/live.py --directory /repos/<репозиторий>` — проверка работающего контейнера через `docker compose exec core`: конфиг собран только из образа, системные права и политики не переопределены (например, OpenCode Console). Модель не вызывает. Если у папки нет чатов, создаёт временный и удаляет его.
+
+После правки `opencode.jsonc`, `apps/opencode/Dockerfile` или `compose.yaml` и при смене версии opencode прогоняй стенд. Стенд не входит в конфиги `ruff` и `mypy`, проверяй его явно.
+
+Конфиг opencode, политики и код можно проверять нативным `opencode` V2 (`opencode serve`). Запускай тестовый сервер с изолированными `HOME` и портом, отличными от рабочих, иначе заденешь живые сессии. `/etc/opencode` не создавай: системный конфиг эмулируй через `bwrap`. Модель подменяй моком OpenAI-совместимого провайдера.
 
 В среде opencode snap-версия `uv` может не запускаться из-за `NoNewPrivs`. Запускай бинарник напрямую: `/snap/astral-uv/current/bin/uv`.
 
@@ -93,7 +118,12 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 
 ## Переменные окружения
 
-Пока не используются.
+Задаются в `.env` (шаблон — `.env.example`), читает их compose:
+- `HOST_REPOS_DIR` — обязательная папка репозиториев на хосте (любой путь). Монтируется в `core` и `opencode` как `/repos`. Задаётся на старте в `.env` или окружении; без неё compose не стартует. В шаблоне — `./data/repos`. Другой путь задавайте абсолютным: `~` Compose не раскрывает.
+- `HOST_UID`, `HOST_GID` — владелец репозиториев на хосте (`id -u`, `id -g`), по умолчанию 1000. Пользователь `app` в образах `core` и `opencode` создаётся с ними, иначе файлы в `/repos` станут чужими, а git потребует `safe.directory`.
+- `OPENCODE_SERVER_PASSWORD` — пароль Basic-авторизации opencode (пользователь `opencode`). Обязателен: без него compose не стартует.
+
+Compose проставляет контейнеру `core` переменные `OPENCODE_URL` (`http://opencode:4096`), `OPENCODE_SERVER_PASSWORD` и `REPOS_DIR` (`/repos`). Код `core` пока их не читает. В образе `opencode` заданы `HOME=/opencode` и `OPENCODE_DISABLE_PROJECT_CONFIG=1`.
 
 ## Обновление этого файла
 
