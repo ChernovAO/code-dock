@@ -9,12 +9,13 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.157.0",
+    "httpx2>=2.16.0",
+    "pydantic>=2.14.1",
     "uvicorn[standard]>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.16.0",
     "mypy>=2.4.0",
     "pytest>=9.1.0",
     "pytest-cov>=7.1.0",
