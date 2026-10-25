@@ -171,6 +171,35 @@ async def test_prompt_interrupt_and_permissions() -> None:
 
 
 @pytest.mark.anyio
+async def test_forms() -> None:
+    seen: list[tuple[str, str, Any, dict[str, str]]] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        payload = body(request) if request.content else None
+        seen.append(
+            (request.method, request.url.path, payload, dict(request.url.params))
+        )
+        if request.method == "GET":
+            return httpx2.Response(200, json={"data": [{"id": "frm_1"}]})
+        return httpx2.Response(204)
+
+    async with client(handler) as api:
+        assert await api.forms("ses_1") == [{"id": "frm_1"}]
+        await api.reply_form("ses_1", "frm_1", {"q0": "A", "q1": ["x", "y"]})
+        await api.cancel_form("ses_1", "frm_1")
+        await api.cancel_form("ses_1", "frm_1", "не сейчас")
+        with pytest.raises(ValueError, match="ID"):
+            await api.reply_form("ses_1", "../frm", {})
+    form = "/api/session/ses_1/form/frm_1"
+    assert seen == [
+        ("GET", "/api/session/ses_1/form", None, {}),
+        ("POST", f"{form}/reply", {"answer": {"q0": "A", "q1": ["x", "y"]}}, {}),
+        ("DELETE", form, None, {}),
+        ("DELETE", form, None, {"message": "не сейчас"}),
+    ]
+
+
+@pytest.mark.anyio
 async def test_error_with_tag() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         error = {
@@ -311,6 +340,15 @@ async def test_events() -> None:
 def test_event_session_id_must_be_string() -> None:
     event = Event(id="evt_1", type="x", data={"sessionID": 1})
     assert event.session_id is None
+    event = Event(id="evt_1", type="x", data={"form": "ses_1"})
+    assert event.session_id is None
+
+
+def test_form_event_session_id() -> None:
+    # Так `form.created` приходит в 2.1.2 (проверено).
+    form = {"id": "frm_1", "sessionID": "ses_1", "title": "Questions", "fields": []}
+    event = Event(id="evt_1", type="form.created", data={"form": form})
+    assert event.session_id == "ses_1"
 
 
 @pytest.mark.anyio

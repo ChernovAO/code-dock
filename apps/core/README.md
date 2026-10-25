@@ -15,19 +15,22 @@
 
 ## Структура
 `src/core/` — код приложения:
-- `main.py` — приложение FastAPI.
+- `main.py` — приложение FastAPI: настройки и клиент opencode на старте, перевод ошибок в HTTP.
+- `api.py` — эндпоинты `/api`: репозитории, проекты, чаты, SSE, разрешения и формы.
+- `repos.py` — репозитории и проекты. Отказывает, если в репозитории есть symlink наружу.
+- `chat.py` — SSE чата: снимок, события чата, переподписка после обрыва.
 - `settings.py` — настройки из переменных окружения `REPOS_DIR`, `OPENCODE_URL`, `OPENCODE_SERVER_PASSWORD`.
 - `paths.py` — слой путей. Любой путь снаружи проходит через него: без `..`, абсолютных путей и `.git`, `realpath` остаётся внутри репозитория.
-- `opencode.py` — тонкий клиент API opencode на `httpx2`: чаты, сообщения, разрешения, поток событий.
-`tests/` — тесты на pytest.
+- `opencode.py` — тонкий клиент API opencode на `httpx2`: чаты, сообщения, разрешения, формы, поток событий.
+`tests/` — тесты на pytest, opencode в них подменён моком (`conftest.py`).
 
 ## Запуск
 Из корня репозитория:
 ```
 uv sync
-.venv/bin/uvicorn core.main:app --reload
+REPOS_DIR=/repos OPENCODE_URL=http://127.0.0.1:4096 OPENCODE_SERVER_PASSWORD=… .venv/bin/uvicorn core.main:app --reload
 ```
-API на `http://localhost:8000`, проверка: `GET /api/health`. Весь стек запускается через `docker compose up --build` из корня репозитория, приложение на `http://localhost:8080`.
+Без трёх переменных приложение не стартует. `REPOS_DIR` должен совпадать с путём, который видит opencode. API на `http://localhost:8000`, проверка: `GET /api/health`. Эндпоинты: `docs/prototype-plan.md`, «Эндпоинты: что вошло». Весь стек запускается через `docker compose up --build` из корня репозитория, приложение на `http://localhost:8080`.
 
 ## Проверки
 Из `apps/core`:

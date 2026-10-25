@@ -7,7 +7,7 @@
 
 import logging
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from types import TracebackType
 from typing import Any, Literal, Self
 
@@ -17,6 +17,8 @@ from pydantic import BaseModel, ValidationError
 type Json = dict[str, Any]
 type Decision = Literal["once", "always", "reject"]
 type Effect = Literal["allow", "ask", "deny"]
+# Ответ на поле формы: строка, число, флаг или выбор нескольких вариантов.
+type FormValue = str | float | bool | list[str]
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +44,10 @@ class OpencodeError(RuntimeError):
         self.message = message
 
 
+class InvalidIdError(ValueError):
+    """ID чата или запроса нельзя подставить в путь URL."""
+
+
 class Durable(BaseModel):
     aggregateID: str
     seq: int
@@ -60,7 +66,11 @@ class Event(BaseModel):
 
     @property
     def session_id(self) -> str | None:
+        """ID чата. У `form.created` он лежит в `data.form.sessionID`."""
         value = self.data.get("sessionID")
+        form = self.data.get("form")
+        if value is None and isinstance(form, dict):
+            value = form.get("sessionID")
         return value if isinstance(value, str) else None
 
 
@@ -171,11 +181,7 @@ class OpencodeClient:
 
     async def permissions(self, session_id: str) -> list[Json]:
         """Ожидающие ответа запросы разрешений чата."""
-        path = f"/api/session/{_id(session_id)}/permission"
-        found = (await self._json("GET", path)).get("data")
-        if not isinstance(found, list):
-            raise OpencodeError(0, f"Нет списка `data` в ответе {path}")
-        return found
+        return await self._list(f"/api/session/{_id(session_id)}/permission")
 
     async def reply_permission(
         self,
@@ -191,9 +197,29 @@ class OpencodeClient:
         path = f"/api/session/{_id(session_id)}/permission/{_id(request_id)}/reply"
         await self._json("POST", path, json=body)
 
+    # Формы (инструмент `question`)
+
+    async def forms(self, session_id: str) -> list[Json]:
+        """Формы чата, которые ждут ответа. Пока форма открыта, чат стоит."""
+        return await self._list(f"/api/session/{_id(session_id)}/form")
+
+    async def reply_form(
+        self, session_id: str, form_id: str, answer: dict[str, FormValue]
+    ) -> None:
+        """Ответ по ключам полей (`fields[].key`). Пустой ответ допустим."""
+        path = f"/api/session/{_id(session_id)}/form/{_id(form_id)}/reply"
+        await self._json("POST", path, json={"answer": answer})
+
+    async def cancel_form(
+        self, session_id: str, form_id: str, message: str | None = None
+    ) -> None:
+        path = f"/api/session/{_id(session_id)}/form/{_id(form_id)}"
+        params = {} if message is None else {"message": message}
+        await self._json("DELETE", path, params=params)
+
     # События
 
-    async def events(self) -> AsyncIterator[Event]:
+    async def events(self) -> AsyncGenerator[Event]:
         """Живой поток событий всех чатов сервера.
 
         Кадры, которые не разобрались в `Event`, пропускаются с предупреждением
@@ -238,6 +264,13 @@ class OpencodeClient:
             seen.add(cursor)
             # Курсор нельзя сочетать с `order`, фильтры он несёт в себе.
             query = {"cursor": cursor, "limit": str(PAGE_SIZE)}
+
+    async def _list(self, path: str) -> list[Json]:
+        """Непостраничный список из поля `data`."""
+        found = (await self._json("GET", path)).get("data")
+        if not isinstance(found, list):
+            raise OpencodeError(0, f"Нет списка `data` в ответе {path}")
+        return found
 
     async def _object(self, method: str, path: str, **kwargs: Any) -> Json:
         data = (await self._json(method, path, **kwargs)).get("data")
@@ -284,5 +317,5 @@ class OpencodeClient:
 def _id(value: str) -> str:
     """ID для пути URL. Иначе `../fs/write` увёл бы запрос на чужой эндпоинт."""
     if not ID_PATTERN.fullmatch(value):
-        raise ValueError(f"Недопустимый ID: {value!r}")
+        raise InvalidIdError(f"Недопустимый ID: {value!r}")
     return value

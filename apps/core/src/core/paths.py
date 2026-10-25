@@ -30,7 +30,13 @@ def repo_root(repos_dir: Path, name: str) -> Path:
     Имя — любая одна папка, кроме `.`, `..` и `.git`: репозитории клонируют
     вручную, и папка может называться как угодно (`.github`, кириллица).
     """
-    if not name or "\0" in name or "/" in name or name in (".", "..") or _is_git(name):
+    if (
+        not name
+        or "\0" in name
+        or "/" in name
+        or name in (".", "..")
+        or is_git_name(name)
+    ):
         raise PathError(f"Недопустимое имя репозитория: {name!r}")
     base = repos_dir.resolve()
     root = (base / name).resolve()
@@ -68,7 +74,7 @@ def open_inside(root: Path, relative: str, flags: int, mode: int = 0o644) -> int
     дескриптор, закрывает его вызывающий.
     """
     parts = _parts(relative)
-    if any(_is_git(part) for part in parts):
+    if any(is_git_name(part) for part in parts):
         raise PathError(f"Путь ведёт в каталог .git: {relative!r}")
     *dirs, last = parts or ["."]
     nofollow = os.O_NOFOLLOW | os.O_CLOEXEC
@@ -119,7 +125,7 @@ def external_symlinks(root: Path) -> list[str]:
                             _check_inside(root, path.resolve(), entry.name)
                         except PathError:
                             found.append(relative_to_root(root, path))
-                    elif entry.is_dir() and not _is_git(entry.name):
+                    elif entry.is_dir() and not is_git_name(entry.name):
                         pending.append(path)
         except OSError:
             found.append(relative_to_root(root, here))
@@ -141,9 +147,10 @@ def _parts(relative: str) -> list[str]:
 def _check_inside(root: Path, real: Path, shown: str) -> None:
     if real != root and root not in real.parents:
         raise PathError(f"Путь ведёт за пределы репозитория: {shown!r}")
-    if any(_is_git(part) for part in real.relative_to(root).parts):
+    if any(is_git_name(part) for part in real.relative_to(root).parts):
         raise PathError(f"Путь ведёт в каталог .git: {shown!r}")
 
 
-def _is_git(part: str) -> bool:
+def is_git_name(part: str) -> bool:
+    """Имя `.git` без учёта регистра."""
     return part.casefold() == GIT_DIR

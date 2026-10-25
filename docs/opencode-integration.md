@@ -66,7 +66,9 @@ FastAPI проксирует запросы и SSE-события. Фронте�
 - `always` сохраняется на уровне репозитория. Решение действует во всех проектах репозитория и в новых чатах, в другом репозитории агент снова спрашивает. Список: `GET /api/permission/saved?projectID=<id>`. В репозитории без коммитов `projectID` — `global` (см. «Создание чата»), и решение, по всей видимости, подействует во всех таких репозиториях. Не проверено.
 - Автоотклонения по таймеру в opencode нет (по документации). Его делает FastAPI. Не проверено: каскад `reject` (по документации отклоняет все ожидающие запросы чата).
 
-Инструмент `question` (проверено): сначала приходит запрос разрешения (`question`, `*`), затем создаётся форма (`GET /api/session/{id}/form`, ответ `POST .../form/{formID}/reply`), и чат ждёт ответа. UI должен поддержать формы либо `question` нужно запретить правилом.
+Инструмент `question` (проверено): сначала приходит запрос разрешения (`question`, `*`, без `save`), затем создаётся форма (`GET /api/session/{id}/form`, ответ `POST .../form/{formID}/reply`, отмена `DELETE .../form/{formID}?message=`), и чат ждёт ответа. Формы поддержаны в `core` (решено 2026-10-26).
+
+Форма (проверено 2026-10-26): `id`, `sessionID`, `title`, `metadata` (`kind: "question"`, `tool` — сообщение и вызов) и `fields` — список полей с `key`, `title`, `description`, `type`, `options` и `custom`. Ответ — `{"answer": {key: значение}}`, значение — строка, число, флаг или список строк. Пустой ответ принимается, модель получает «Unanswered».
 
 ## События и переподключение
 
@@ -74,7 +76,8 @@ FastAPI проксирует запросы и SSE-события. Фронте�
 - `GET /api/event` отдаёт кадры только с `data:` (JSON), `content-type: text/event-stream`. Полей SSE `id:` и `event:` нет, хотя в OpenAPI они описаны. Каждые 15 секунд приходит комментарий `: heartbeat`. Первое событие — `server.connected`.
 - Поток общий для всех чатов и репозиториев сервера. Событие несёт `id` (`evt_…`), `type`, `created`, `location` и `data` (в нём `sessionID`). Фильтровать по чату нужно в FastAPI.
 - Долговечные события несут ещё `durable: {aggregateID, seq, version}`. `seq` растёт внутри чата с нуля. Эфемерные его не имеют: `permission.asked`, `permission.replied`, `session.text.delta`, `session.usage.updated`, `project.updated`.
-- Типы, которые наблюдались: `session.created`, `session.inbox.enqueued`, `session.execution.started` и `.succeeded`, `session.step.started` и `.ended`, `session.tool.input.started` и `.ended`, `session.tool.called`, `session.tool.success`, `session.text.started`, `.delta` и `.ended`, `session.renamed`, `permission.asked`, `permission.replied`.
+- Типы, которые наблюдались: `session.created`, `session.inbox.enqueued` и `.delivered`, `session.execution.started` и `.succeeded`, `session.instructions.updated`, `session.step.started`, `.streamed` и `.ended`, `session.tool.input.started` и `.ended`, `session.tool.called`, `session.tool.progress`, `session.tool.success`, `session.text.started`, `.delta` и `.ended`, `session.usage.updated`, `session.renamed`, `permission.asked`, `permission.replied`, `form.created`, `form.replied`, `form.cancelled`. Без ID чата: `server.connected`, `worktree.resolved`, `project.updated`, `shell.created`, `shell.exited` и `*.updated` для провайдеров, моделей, агентов.
+- **ID чата у форм** (проверено 2026-10-26): у `form.created` он лежит в `data.form.sessionID`, а не в `data.sessionID`. У `form.replied` и `form.cancelled` — в `data.sessionID`. События форм эфемерны.
 - По спецификации подписка «volatile by contract»: медленный потребитель переполняет поток, и тот обрывается. События во время разрыва теряются.
 
 **Докачка через журнал не работает** (проверено). `GET /api/experimental/session/{id}/log?after=<seq>` не отдаёт ни прошлых, ни живых событий, в том числе с `follow=true`. Приходит только служебный кадр `log.synced` с последним `seq`. Таблица `event` в БД opencode пуста: события не сохраняются, чат хранится в проекции `session_message`. Схема «`id: <seq>` и `Last-Event-ID`» не применима.
@@ -85,6 +88,15 @@ FastAPI проксирует запросы и SSE-события. Фронте�
 3. После обрыва повторить с шага 1 целиком.
 
 Дельты текста, рассуждений и ввода tool эфемерны. Недостающее досылает `session.text.ended`. Буфера событий в FastAPI нет.
+
+Ключи слияния (проверено 2026-10-26). В истории `seq` нет, поэтому события накладываются на снимок по ключам:
+- сообщение — `id`; события хода несут `assistantMessageID`;
+- текст — `assistantMessageID` и `ordinal`;
+- вызов инструмента — `assistantMessageID` и `id` (`call_…`);
+- запрос разрешения — `id`, ответ `permission.replied` ссылается на него через `requestID`;
+- форма — `id`, `form.replied` и `form.cancelled` ссылаются на него через `id`.
+
+Как это сделано в `core`: [prototype-plan.md](prototype-plan.md), «Эндпоинты: что вошло».
 
 ## Права и граница агента
 

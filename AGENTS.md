@@ -4,7 +4,7 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 
 ## Состояние проекта
 
-Проект на стадии проектирования. Есть документация в `docs/` и заготовки приложений в `apps/`. Рабочего кода почти нет: `apps/core` отдаёт `GET /api/health`, `apps/frontend` показывает одну страницу-заглушку со статусом бэкенда. Для прототипа готовы образ opencode с конфигом прав (`apps/opencode`) и compose на три сервиса (фаза A плана прототипа). В `core` идёт фаза B: готовы настройки, слой путей и клиент opencode, эндпоинтов чата пока нет. Не выдумывай команды сборки, тестов и линтеров. Когда появятся, добавь их в этот файл.
+Проект на стадии проектирования. Есть документация в `docs/` и заготовки приложений в `apps/`. `apps/frontend` показывает одну страницу-заглушку со статусом бэкенда. Для прототипа готовы образ opencode с конфигом прав (`apps/opencode`) и compose на три сервиса (фаза A плана прототипа). В `core` фаза B: настройки, слой путей, клиент opencode и эндпоинты чата (репозитории и проекты, создание чата, сообщение, SSE, ответ на разрешение и форму). Список эндпоинтов и формат SSE: `docs/prototype-plan.md`, «Эндпоинты: что вошло». Git- и файловых эндпоинтов пока нет. Не выдумывай команды сборки, тестов и линтеров. Когда появятся, добавь их в этот файл.
 
 Перед работой прочитай документы:
 - `docs/overview.md`: цели, принципы, что не входит в проект.
@@ -61,7 +61,7 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 
 ## Структура каталогов
 
-- `apps/core` — бэкенд на FastAPI. Python-пакет `core` (`src/core/`), тесты в `tests/`, собирается через `uv_build`. Модули: `main.py` (приложение), `settings.py` (переменные окружения), `paths.py` (слой путей: все пути снаружи проходят через него), `opencode.py` (клиент API opencode на `httpx2`).
+- `apps/core` — бэкенд на FastAPI. Python-пакет `core` (`src/core/`), тесты в `tests/`, собирается через `uv_build`. Модули: `main.py` (`create_app`: настройки и клиент opencode в `lifespan`, перевод ошибок в HTTP), `api.py` (эндпоинты `/api`), `repos.py` (репозитории и проекты, отказ при symlink наружу), `chat.py` (SSE чата: снимок, фильтр, переподписка), `settings.py` (переменные окружения), `paths.py` (слой путей: все пути снаружи проходят через него), `opencode.py` (клиент API opencode на `httpx2`). В `tests/conftest.py` — мок opencode на `httpx2.MockTransport` и тестовая папка репозиториев.
 - `apps/opencode` — образ opencode: `Dockerfile` (версия 2.1.2, пользователь `app` с UID/GID хоста) и системный конфиг `opencode.jsonc` с правами и политиками. В `verify/` — стенд проверки образа и прав на нативном opencode (без сторонних пакетов). Не входит в uv workspace.
 - `apps/frontend` — фронтенд на React + TypeScript (Vite, npm). Не входит в uv workspace.
 - `compose.yaml` — `docker compose up` поднимает `opencode` и `core` (внутренняя сеть) и `frontend` (nginx, порт 8080, проксирует `/api` в `core`). Dockerfile лежат в `apps/core`, `apps/opencode` и `apps/frontend`. Папка репозиториев и том `opencode-data` монтируются в `/repos` и `/opencode`.
@@ -76,7 +76,7 @@ Code Dock — self-hosted mobile-first веб-интерфейс для рабо
 Бэкенд (из корня репозитория):
 - `uv sync` — создать `.venv` и поставить зависимости. Dev-зависимости `core` при этом не ставятся. `uv sync --all-packages` ставит всех участников workspace.
 - `uv build --package core` — собрать пакет `core`.
-- `.venv/bin/uvicorn core.main:app --reload` — запустить API на `localhost:8000`.
+- `REPOS_DIR=… OPENCODE_URL=… OPENCODE_SERVER_PASSWORD=… .venv/bin/uvicorn core.main:app --reload` — запустить API на `localhost:8000`. Без трёх переменных приложение не стартует. Путь `REPOS_DIR` должен совпадать с тем, что видит opencode: `location.directory` абсолютный.
 
 Бэкенд: проверки (из `apps/core`):
 - `uv run ruff check .` — линтер.
@@ -123,7 +123,7 @@ docker compose up --build
 - `HOST_UID`, `HOST_GID` — владелец репозиториев на хосте (`id -u`, `id -g`), по умолчанию 1000. Пользователь `app` в образах `core` и `opencode` создаётся с ними, иначе файлы в `/repos` станут чужими, а git потребует `safe.directory`.
 - `OPENCODE_SERVER_PASSWORD` — пароль Basic-авторизации opencode (пользователь `opencode`). Обязателен: без него compose не стартует.
 
-Compose проставляет контейнеру `core` переменные `OPENCODE_URL` (`http://opencode:4096`), `OPENCODE_SERVER_PASSWORD` и `REPOS_DIR` (`/repos`). Их читает `core.settings.Settings.from_env`, все три обязательны. Приложение к настройкам пока не подключено. В образе `opencode` заданы `HOME=/opencode` и `OPENCODE_DISABLE_PROJECT_CONFIG=1`.
+Compose проставляет контейнеру `core` переменные `OPENCODE_URL` (`http://opencode:4096`), `OPENCODE_SERVER_PASSWORD` и `REPOS_DIR` (`/repos`). Их читает `core.settings.Settings.from_env` на старте приложения, все три обязательны: без них `core` не стартует. В образе `opencode` заданы `HOME=/opencode` и `OPENCODE_DISABLE_PROJECT_CONFIG=1`.
 
 ## Обновление этого файла
 
